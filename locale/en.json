@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Plugin Finder",
+    "description": "Searches GitHub and npm for DeepSeek Harness plugins and keeps a ranked suggestion list."
+  }
+}

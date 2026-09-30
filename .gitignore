@@ -1,0 +1,5 @@
+# Build artifacts and scratch data: the plugin needs none of these at runtime.
+.build/
+
+# Nothing here is installed by DSH; the profile holds a link to this directory.
+node_modules/

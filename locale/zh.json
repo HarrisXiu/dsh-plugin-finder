@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "插件发现",
+    "description": "自动在 GitHub 与 npm 上检索 DeepSeek Harness 插件，并维护一份排序后的推荐清单。"
+  }
+}

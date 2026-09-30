@@ -1,0 +1,7 @@
+# Adds the Plugin Finder rows only. It replaces no official DSH component.
+- insert:
+    - id: plugin-finder
+      name: dsh-plugin-finder
+      config:
+        enabled: true
+        cacheTtlMinutes: 720
