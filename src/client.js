@@ -2,7 +2,7 @@
  * Plugin Finder — Client half.
  *
  * Registers the "Plugin Finder" sidebar entry and its main panel: a browsable,
- * searchable directory of DSH plugins built from the public community catalog,
+ * searchable directory of GitHub repositories carrying the dsh-plugin topic,
  * showing each plugin's npm package name and GitHub repository.
  *
  * Contract this file follows (see the Cordis plugin-development skill):
@@ -29,15 +29,15 @@ window.__ModuleLoader__.load({
     var NS = 'pluginFinder';
     /** Shared panel identity: the sidebar entry id equals the main slot key. */
     var PANEL_ID = 'plugin-finder';
-    /** The curated community catalog, CORS-enabled and refreshed daily. */
-    var CATALOG_URL = 'https://awesome-dsh-plugin.com/plugins.json';
-    /** How many rows are rendered at once; the catalog holds thousands. */
+    /** All data comes from the same host engine used by the agent tool. */
+    var INDEX_URL = '/plugin-finder/index';
+    /** How many repository rows are rendered at once. */
     var PAGE = 150;
 
-    /** The ranked snapshot inlined at build time: instant content, works offline. */
+    /** An empty initial state; discovered data is loaded from the host cache. */
     var SNAPSHOT = /*__SNAPSHOT__*/ null;
 
-    // The panel follows the interface language; the catalog ships both.
+    // The panel follows the interface language.
     var LANG = String(
       (typeof document !== 'undefined' && document.documentElement && document.documentElement.lang)
       || (typeof navigator !== 'undefined' && navigator.language) || 'en',
@@ -47,7 +47,7 @@ window.__ModuleLoader__.load({
     var en = {
       panel: 'Plugin Finder',
       title: 'DSH Plugin Finder',
-      subtitle: 'Community plugins for DeepSeek Harness, with the npm package name and the GitHub repository for each one.',
+      subtitle: 'GitHub repositories tagged dsh-plugin. Forks and archived repositories included; categories are inferred.',
       search: 'Search name, repository, or description',
       category: 'Category',
       all: 'All',
@@ -56,36 +56,36 @@ window.__ModuleLoader__.load({
       sortStars: 'Stars',
       sortDownloads: 'Downloads',
       sortName: 'Name',
-      installableOnly: 'Installable by name',
-      refresh: 'Refresh catalog',
+      installableOnly: 'Verified bundle',
+      refresh: 'Scan / resume GitHub',
       refreshing: 'Refreshing…',
-      loading: 'Loading the catalog…',
+      loading: 'Scanning GitHub…',
       empty: 'No plugin matched. Clear the search or pick another category.',
-      snapshot: 'Bundled snapshot',
-      live: 'Live catalog',
-      updated: 'Catalog updated {date}',
+      snapshot: 'Cached scan',
+      live: 'GitHub scan',
+      updated: 'Scanned {date}',
       total: '{count} plugins',
       shown: 'Showing the first {shown} of {total}',
       more: 'Show more',
       installable: 'npm',
       repoOnly: 'GitHub only',
-      installedHint: 'Copy the package name, then add it from the Plugins page: Add plugin.',
-      copy: 'Copy name',
+      installedHint: 'For a recognized bundle, copy its install target into Plugins → Add plugin. Otherwise check the repository README.',
+      copy: 'Copy install target',
       copied: 'Copied',
       openRepo: 'Repository',
       openNpm: 'npm',
       openPage: 'Catalog page',
-      failed: 'The catalog could not be read; showing the bundled snapshot.',
+      failed: 'Scan is incomplete or unavailable; showing repositories already found.',
       stars: 'stars',
       downloads: 'downloads/month',
       full: 'Full list',
-      fullHint: 'Browse and search every catalogued plugin at awesome-dsh-plugin.com',
+      fullHint: 'Browse the dsh-plugin topic on GitHub',
     };
 
     var zh = {
       panel: '插件发现',
       title: 'DSH 插件发现',
-      subtitle: 'DeepSeek Harness 社区插件，逐条列出 npm 包名与 GitHub 仓库地址。',
+      subtitle: '直接扫描 GitHub 的 dsh-plugin 标签仓库，包含 fork 和已归档仓库；分类由关键词推断。',
       search: '搜索包名、仓库或描述',
       category: '分类',
       all: '全部',
@@ -94,30 +94,30 @@ window.__ModuleLoader__.load({
       sortStars: '星标',
       sortDownloads: '下载量',
       sortName: '名称',
-      installableOnly: '可按包名安装',
-      refresh: '刷新目录',
+      installableOnly: '已识别 bundle',
+      refresh: '扫描 / 继续扫描',
       refreshing: '正在刷新…',
-      loading: '正在加载插件目录…',
+      loading: '正在扫描 GitHub…',
       empty: '没有匹配的插件。清空搜索词或换一个分类。',
-      snapshot: '内置快照',
-      live: '在线目录',
-      updated: '目录更新于 {date}',
+      snapshot: '扫描缓存',
+      live: 'GitHub 扫描',
+      updated: '扫描于 {date}',
       total: '共 {count} 个插件',
       shown: '显示前 {shown} / {total} 条',
       more: '显示更多',
       installable: 'npm',
       repoOnly: '仅 GitHub',
-      installedHint: '复制包名后，在侧边栏「Plugins」页面点 Add plugin 粘贴安装。',
+      installedHint: '已识别 bundle 可复制安装标识到 Plugins → Add plugin；其他仓库请先查看 README 的安装说明。',
       copy: '复制包名',
       copied: '已复制',
       openRepo: '仓库',
       openNpm: 'npm',
       openPage: '目录页',
-      failed: '在线目录读取失败，正在显示内置快照。',
+      failed: '扫描未完成或网络不可用，显示已找到的仓库。',
       stars: '星标',
       downloads: '下载/月',
       full: '完整目录',
-      fullHint: '在 awesome-dsh-plugin.com 浏览与搜索全部收录插件',
+      fullHint: '在 GitHub 查看 dsh-plugin 标签仓库',
     };
 
     /* ------------------------------------------------------------------ */
@@ -146,63 +146,36 @@ window.__ModuleLoader__.load({
       return (ZH ? (zhText || enText) : (enText || zhText)) || '';
     }
 
-    /** A stable identity for one plugin row. */
-    function keyOf(row) {
-      return String(row.npm || row.url || row.owner + '/' + row.name).toLowerCase();
-    }
+    /** The host already ranked repository identity, manifest shape and stars. */
+    function scoreOf(row) { return row.score || 0; }
 
-    /**
-     * Rank catalog rows for this panel.
-     *
-     * The weights mirror the Host half's ranking so the sidebar list and the
-     * agent tool agree on what "recommended" means: a curated pick first, then
-     * community signals. The catalog does not expose manifest shape, so bundle
-     * detection is not part of the client-side score.
-     */
-    function scoreOf(row, weights) {
-      var score = 0;
-      var weight = weights[keyOf(row)];
-      if (weight) score += 40 + weight;
-      if (row.npm) score += 12;
-      if (row.url) score += 6;
-      score += Math.min(22, Math.log2(Math.max(0, row.stars) + 1) * 4);
-      score += Math.min(16, Math.log10(Math.max(0, row.downloads) + 1) * 5);
-      return score;
-    }
-
-    /** Turn one catalog entry into the flat shape the panel renders. */
+    /** Flatten host candidates without guessing npm publication or installability. */
     function toRow(entry) {
-      var description = entry.description || {};
+      var parts = entry.repoFullName.split('/');
       return {
-        key: String(entry.npm || entry.url || entry.owner + '/' + entry.name).toLowerCase(),
-        name: String(entry.name || ''),
-        owner: String(entry.owner || ''),
-        npm: typeof entry.npm === 'string' ? entry.npm : '',
-        url: typeof entry.url === 'string' ? entry.url : '',
-        page: typeof entry.page === 'string' ? entry.page : '',
-        category: typeof entry.category === 'string' ? entry.category : '',
-        zh: typeof description.zh === 'string' ? description.zh : '',
-        en: typeof description.en === 'string' ? description.en : '',
-        stars: Number(entry.stars || 0),
-        downloads: Number(entry.downloads || 0),
-        version: typeof entry.version === 'string' ? entry.version : '',
-        capabilities: Array.isArray(entry.capabilities) ? entry.capabilities : [],
-        added: typeof entry.added === 'string' ? entry.added : '',
+        key: entry.key, name: entry.repoFullName, owner: parts[0], npm: entry.npmName,
+        url: entry.repoUrl, page: '', category: entry.category,
+        zh: entry.descriptions.zh, en: entry.descriptions.en || entry.description,
+        stars: entry.stars, downloads: 0, version: entry.version, capabilities: [],
+        added: entry.createdAt, installSpec: entry.installSpec, archived: entry.archived,
+        score: entry.score, topics: entry.topics,
       };
     }
-
-    /** Read the catalog over its public, CORS-enabled endpoint. */
-    function fetchCatalog(signal) {
-      return fetch(CATALOG_URL, { headers: { accept: 'application/json' }, signal: signal })
-        .then(function (response) {
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          return response.json();
-        })
-        .then(function (data) {
-          var rows = (data && Array.isArray(data.plugins) ? data.plugins : []).map(toRow);
-          if (!rows.length) throw new Error('the catalog returned no plugins');
-          return { rows: rows, categories: data.categories || {}, updated: String(data.updated || '') };
-        });
+    function fetchIndex(signal, refresh) {
+      return fetch(refresh ? '/plugin-finder/refresh' : INDEX_URL, {
+        method: refresh ? 'POST' : 'GET', headers: { accept: 'application/json' }, signal: signal,
+      }).then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status + ' — restart DSH to load the new host engine');
+        return response.json();
+      }).then(function (data) {
+        if (data.mode !== 'github-topic:dsh-plugin' || !Array.isArray(data.candidates)) throw new Error('Invalid direct-discovery response');
+        return {
+          rows: data.candidates.map(toRow), categories: data.categories || {}, updated: data.generatedAt,
+          loading: data.running, progress: data.progress || '',
+          error: (data.errors || []).join(' | ') || (!data.running && !data.scan.complete && data.candidates.length
+            ? (ZH ? '扫描未完成，点击继续扫描。' : 'Partial scan; click resume.') : ''),
+        };
+      });
     }
 
     /* ------------------------------------------------------------------ */
@@ -263,8 +236,9 @@ window.__ModuleLoader__.load({
           h('span', {
             style: { fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', wordBreak: 'break-all' },
           }, row.npm || row.name || row.owner + '/' + row.name),
-          row.npm ? h(Chip, { style: chip }, t('installable')) : h(Chip, { style: chip }, t('repoOnly')),
-          row.category ? h(Chip, { style: chip }, props.categoryLabel(row.category)) : null),
+          row.installSpec ? h(Chip, { style: chip }, 'bundle') : h(Chip, { style: chip }, t('repoOnly')),
+          row.category ? h(Chip, { style: chip }, props.categoryLabel(row.category)) : null,
+          row.archived ? h(Chip, { style: chip }, ZH ? '已归档' : 'Archived') : null),
         h('div', {
           style: { marginTop: 4, fontSize: 12.5, lineHeight: '19px', color: 'var(--dsw-alias-label-secondary)' },
         }, describe(row)),
@@ -292,7 +266,7 @@ window.__ModuleLoader__.load({
             background: copied ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-bg-layer-2)',
             color: copied ? '#fff' : 'var(--dsw-alias-label-primary)',
           },
-        }, copied ? t('copied') : t('copy'))));
+        }, copied ? t('copied') : row.installSpec ? t('copy') : (ZH ? '复制仓库' : 'Copy repository'))));
     }
 
     /** The main panel. Mounted only while its sidebar entry is selected. */
@@ -329,46 +303,44 @@ window.__ModuleLoader__.load({
       var setCopiedKey = copied[1];
       var abort = React.useRef(null);
 
-      /** Curated weights from the bundled snapshot, keyed like catalog rows. */
-      var weights = React.useMemo(function () {
-        var map = {};
-        for (var i = 0; i < initial.rows.length; i += 1) {
-          var row = initial.rows[i];
-          map[row.key] = Math.max(0, 40 - i);
-        }
-        return map;
-      }, []);
-
-      var load = React.useCallback(function () {
+      var poll = React.useRef(null);
+      var load = React.useCallback(function (force) {
         if (abort.current) abort.current.abort();
-        var controller = typeof AbortController === 'function' ? new AbortController() : null;
+        if (poll.current) clearTimeout(poll.current);
+        var controller = new AbortController();
         abort.current = controller;
-        setView(function (previous) {
-          return {
-            rows: previous.rows, categories: previous.categories, updated: previous.updated,
-            source: previous.source, loading: true, error: '',
-          };
-        });
-        fetchCatalog(controller ? controller.signal : undefined).then(function (result) {
+        var first = !force;
+        function update(result) {
+          if (controller.signal.aborted) return;
           setView({
             rows: result.rows, categories: result.categories, updated: result.updated,
-            source: 'live', loading: false, error: '',
+            source: 'live', loading: result.loading, error: result.error, progress: result.progress,
           });
-        }).catch(function (error) {
-          if (error && error.name === 'AbortError') return;
+          if (first && !result.loading && !result.error &&
+              (!result.updated || Date.now() - Date.parse(result.updated) > 43200000)) {
+            first = false;
+            return fetchIndex(controller.signal, true).then(update);
+          }
+          first = false;
+          if (result.loading) poll.current = setTimeout(function () {
+            fetchIndex(controller.signal, false).then(update).catch(failed);
+          }, 2000);
+        }
+        function failed(error) {
+          if (controller.signal.aborted) return;
           setView(function (previous) {
-            return {
-              rows: previous.rows, categories: previous.categories, updated: previous.updated,
-              source: previous.source === 'live' ? 'live' : 'snapshot', loading: false,
-              error: String((error && error.message) || error),
-            };
+            return Object.assign({}, previous, { loading: false, error: String(error.message || error) });
           });
-        });
+        }
+        fetchIndex(controller.signal, force === true).then(update).catch(failed);
       }, []);
 
       React.useEffect(function () {
-        load();
-        return function () { if (abort.current) abort.current.abort(); };
+        load(false);
+        return function () {
+          if (abort.current) abort.current.abort();
+          if (poll.current) clearTimeout(poll.current);
+        };
       }, [load]);
 
       /** Category label in the interface language, falling back to the id. */
@@ -394,10 +366,10 @@ window.__ModuleLoader__.load({
       var filtered = React.useMemo(function () {
         var needle = text.trim().toLowerCase();
         var rows = view.rows.filter(function (row) {
-          if (installableOnly && !row.npm) return false;
+          if (installableOnly && !row.installSpec) return false;
           if (activeCategory && row.category !== activeCategory) return false;
           if (!needle) return true;
-          return (row.npm + ' ' + row.name + ' ' + row.owner + ' ' + row.url + ' ' + row.en + ' ' + row.zh + ' ' + row.category)
+          return (row.npm + ' ' + row.name + ' ' + row.owner + ' ' + row.url + ' ' + row.en + ' ' + row.zh + ' ' + row.category + ' ' + row.topics.join(' '))
             .toLowerCase().indexOf(needle) >= 0;
         });
         if (sortBy === 'stars') rows.sort(function (a, b) { return b.stars - a.stars; });
@@ -406,14 +378,14 @@ window.__ModuleLoader__.load({
           rows.sort(function (a, b) { return (a.npm || a.name).localeCompare(b.npm || b.name); });
         } else {
           rows.sort(function (a, b) {
-            return scoreOf(b, weights) - scoreOf(a, weights) || b.stars - a.stars;
+            return scoreOf(b) - scoreOf(a) || b.stars - a.stars;
           });
         }
         return rows;
-      }, [view.rows, text, activeCategory, sortBy, installableOnly, weights]);
+      }, [view.rows, text, activeCategory, sortBy, installableOnly]);
 
       var copy = React.useCallback(function (row) {
-        var value = row.npm || row.url;
+        var value = row.installSpec || row.url;
         var done = function () {
           setCopiedKey(row.key);
           setTimeout(function () {
@@ -464,7 +436,7 @@ window.__ModuleLoader__.load({
             + (view.updated ? ' · ' + t('updated', { date: day(view.updated) }) : '')
             + ' · ' + (view.source === 'live' ? t('live') : t('snapshot'))),
           h('button', {
-            type: 'button', onClick: load, disabled: view.loading,
+            type: 'button', onClick: function () { load(true); }, disabled: view.loading,
             style: {
               marginLeft: 'auto', cursor: view.loading ? 'default' : 'pointer', font: 'inherit', fontSize: 12,
               padding: '5px 12px', borderRadius: 'var(--dsw-radius-sm, 6px)',
@@ -473,6 +445,7 @@ window.__ModuleLoader__.load({
             },
           }, view.loading ? t('refreshing') : t('refresh'))),
         h('p', { style: { margin: '6px 0 10px', fontSize: 12.5, color: 'var(--dsw-alias-label-secondary)' } }, t('subtitle')),
+        view.progress ? h('p', { role: 'status', style: { fontSize: 12 } }, view.progress) : null,
         view.error ? h('p', {
           style: {
             margin: '0 0 10px', fontSize: 12, padding: '6px 10px', borderRadius: 'var(--dsw-radius-sm, 6px)',
@@ -491,7 +464,6 @@ window.__ModuleLoader__.load({
           },
           h('option', { value: 'recommended' }, t('sortRecommended')),
           h('option', { value: 'stars' }, t('sortStars')),
-          h('option', { value: 'downloads' }, t('sortDownloads')),
           h('option', { value: 'name' }, t('sortName'))),
           h('label', { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--dsw-alias-label-secondary)' } },
             h('input', {
@@ -541,7 +513,7 @@ window.__ModuleLoader__.load({
       var footer = h('p', { style: { marginTop: 20, fontSize: 11.5, color: 'var(--dsw-alias-label-caption, var(--dsw-alias-label-tertiary))' } },
         t('installedHint') + ' ',
         h('a', {
-          href: 'https://awesome-dsh-plugin.com', target: '_blank', rel: 'noreferrer',
+          href: 'https://github.com/topics/dsh-plugin', target: '_blank', rel: 'noreferrer',
           style: { color: 'var(--dsw-alias-link)' },
         }, t('fullHint')));
 

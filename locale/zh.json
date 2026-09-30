@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "插件发现",
-    "description": "自动在 GitHub 与 npm 上检索 DeepSeek Harness 插件，并维护一份排序后的推荐清单。"
+    "description": "直接扫描 GitHub 上带 dsh-plugin 标签的仓库，支持国内镜像回退、分页和断点续扫。"
   }
 }

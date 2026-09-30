@@ -14,10 +14,26 @@
  *
  * Run from the bundle directory: `node tools/preinstall.mjs`
  */
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { FinderEngine } from '../lib/core/engine.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+
+const fixturePath = join(root, '.build', 'preinstall-cache.json');
+mkdirSync(join(root, '.build'), { recursive: true });
+const repos = ['memory', 'market', 'sidebar'].map((word, n) => ({
+  fullName: 'fixture/dsh-' + word, description: word, topics: ['dsh-plugin'], stars: 10 - n,
+  archived: false, createdAt: '2026-09-01T00:00:00Z', pushedAt: '', homepage: '',
+}));
+const fixtureEngine = new FinderEngine({ cachePath: '' });
+fixtureEngine.repoManifests = new Map(repos.map(r => [r.fullName, {
+  name: r.fullName.split('/')[1], dsh: { bundle: { patch: './cordis.patch.yml' } },
+}]));
+writeFileSync(fixturePath, JSON.stringify(fixtureEngine.makeIndex(repos, { complete: true, sources: ['fixture'], total: repos.length })));
+const fixtureConfig = { cachePath: fixturePath };
 
 let failures = 0;
 const check = (label, condition, detail = '') => {
@@ -55,7 +71,7 @@ const ctx = {
 
 let applyError = null;
 try {
-  module.apply(ctx, {});
+  module.apply(ctx, fixtureConfig);
 } catch (error) {
   applyError = error;
 }
@@ -143,7 +159,7 @@ const makeProfileContext = (composed) => ({
 
 let profileApplyError = null;
 try {
-  module.apply(makeProfileContext(true), {});
+  module.apply(makeProfileContext(true), fixtureConfig);
 } catch (error) {
   profileApplyError = error;
 }
@@ -151,7 +167,7 @@ check('apply() survives a context that exposes profileContext', profileApplyErro
 check('the tool is registered in that context too', profileRegistrations.length === 1);
 
 if (profileRegistrations.length === 1) {
-  const withProfile = await profileRegistrations[0].execute({ action: 'suggest', offline: true, limit: 1 }, {});
+  const withProfile = await profileRegistrations[0].execute({ action: 'suggest', offline: true, limit: 1 }, fixtureConfig);
   console.log(`--- action: suggest with a profile (limit 1) ---\n${withProfile}\n`);
   check('the install command names the profile', withProfile.includes('dsh plugin --profile desktop add '),
     withProfile.split('\n').filter((line) => line.includes('install:')).join(' / '));
@@ -172,7 +188,7 @@ check('diagnose finds this plugin in the boot graph', /mentions this plugin at /
 const droppedRegistrations = [];
 const droppedCtx = makeProfileContext(false);
 droppedCtx.tools = { register: (definition) => { droppedRegistrations.push(definition); return () => {}; } };
-module.apply(droppedCtx, {});
+module.apply(droppedCtx, fixtureConfig);
 const dropped = await droppedRegistrations[0].execute({ action: 'diagnose' }, {});
 console.log(`--- action: diagnose (browser half dropped) ---\n${dropped}\n`);
 check('diagnose reports a missing browser half as NOT COMPOSED', /browser half: NOT COMPOSED/.test(dropped), dropped);
@@ -216,7 +232,7 @@ check('category filter is honored', filtered.includes('category: memory'));
 
 const searched = await runOffline({ action: 'search', query: 'market', offline: true, limit: 2 });
 console.log(`--- action: search query=market (offline) ---\n${searched}\n`);
-check('offline search reads the local index only', searched.includes('offline'));
+check('offline search reads the local index only', searched.includes('Cached topic matches') && !searched.includes('Live GitHub'));
 
 let errorForBadAction = null;
 try {

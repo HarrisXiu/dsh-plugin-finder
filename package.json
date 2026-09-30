@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-finder",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Discover DSH plugins on GitHub and npm — package name, repository URL, and a curated suggestion list.",
+  "description": "Discover all public GitHub repositories tagged dsh-plugin, with domestic mirror fallback and resumable scans.",
   "license": "MIT",
   "icon": "./icon.svg",
   "exports": {
@@ -14,7 +14,6 @@
   },
   "files": [
     "lib",
-    "data",
     "locale",
     "icon.svg",
     "cordis.patch.yml",
@@ -37,5 +36,10 @@
         "@deepseek-ai/dsh-client-ui-layout"
       ]
     }
+  },
+  "scripts": {
+    "build": "node tools/build-data.mjs",
+    "test": "node tools/selfcheck.mjs && node tools/preinstall.mjs && node tools/clientcheck.mjs",
+    "test:live": "node tools/livecheck.mjs"
   }
 }
